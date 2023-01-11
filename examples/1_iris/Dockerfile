@@ -1,5 +1,5 @@
 # default public base image for working inside Noronha
-FROM noronhadataops/noronha:latest
+FROM noronhadataops/noronha:affinity
 
 # project dependencies installation
 ADD requirements.txt .

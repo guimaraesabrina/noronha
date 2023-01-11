@@ -171,7 +171,12 @@ class CaptainCompass(Compass):
         'timeout': 3,
         'retries': 3
     }
-    
+    KEY_NODE_AFFINITY = 'node_affinity'
+    KEY_NODE_SELECTOR = 'nodeSelectorTerms'
+    KEY_MATCH_EXP = 'matchExpressions'
+    KEY_WEIGHT = 'weight'
+    KEY_PREFERENCE = 'preference'
+
     @property
     def healthcheck(self):
         
@@ -263,6 +268,15 @@ class CaptainCompass(Compass):
 
         pass
 
+    @abstractmethod
+    def get_required_node_affinity(self, resource_profile: dict) -> dict: 
+
+        pass 
+
+    @abstractmethod
+    def get_preferred_node_affinity(self, resource_profile: dict) -> dict: 
+
+        pass 
 
 class SwarmCompass(CaptainCompass):
     
@@ -288,6 +302,14 @@ class SwarmCompass(CaptainCompass):
 
         raise NotImplementedError("Container manager 'swarm' does not take service_type configuration")
 
+    def get_required_node_affinity(self, resource_profile: dict) -> dict:
+        
+        raise NotImplementedError("Container manager 'swarm' does not take node_afinitty configuration")
+
+    def get_preferred_node_affinity(self, resource_profile: dict) -> dict:
+
+        raise NotImplementedError("Container manager 'swarm' does not take node_afinitty configuration")
+
 
 class KubeCompass(CaptainCompass):
     
@@ -297,6 +319,9 @@ class KubeCompass(CaptainCompass):
     DEFAULT_NAMESPACE = 'default'
     DEFAULT_STG_CLS = 'standard'
     DEFAULT_TIMEOUT = 60
+    KEY_PREFERENCE = 'preference'
+    KEY_WEIGHT = 'weight'
+
 
     def get_namespace(self):
         
@@ -331,6 +356,7 @@ class KubeCompass(CaptainCompass):
                     if os.system("ping -c 1 -i 0.2 -W 1 {} > /dev/null".format(node_addr.address)) == 0:
                         return node_addr.address
 
+
     def get_svc_type(self, resource_profile: dict):
 
         prof = resource_profile or {}
@@ -347,6 +373,61 @@ class KubeCompass(CaptainCompass):
 
         return svc_opts[prof_svc.lower()]
 
+    def get_required_node_affinity(self, resource_profile: dict) -> dict:
+
+        resource_profile = resource_profile or {}
+        aux = resource_profile.get(self.KEY_NODE_AFFINITY, {}).get('required')
+        
+        if not aux:
+            return {}
+
+        assert aux.get(self.KEY_NODE_SELECTOR), ConfigurationError("Invalid node_affinity must have key: {}".format(self.KEY_NODE_SELECTOR))
+
+        assert isinstance(aux.get(self.KEY_NODE_SELECTOR), list), ConfigurationError("Invalid {} must be a list".format(self.KEY_NODE_SELECTOR))
+
+        for item in aux[self.KEY_NODE_SELECTOR]:
+            
+            assert isinstance(item, dict), ConfigurationError("Invalid {} must be a list of dicts".format(self.KEY_NODE_SELECTOR))
+
+            assert item.get(self.KEY_MATCH_EXP), ConfigurationError("Invalid {} must have dicts with key: {}".format(self.KEY_NODE_SELECTOR, self.KEY_MATCH_EXP))
+
+            for subitem in item[self.KEY_MATCH_EXP]:
+
+                assert subitem.get("key"), ConfigurationError("Invalid {} must provide at least one key".format(self.KEY_MATCH_EXP))  
+
+                assert subitem.get("values"), ConfigurationError(" Invalid {} must provide at least one value".format(self.KEY_MATCH_EXP)) 
+            
+                assert isinstance(subitem.get("values"), list), ConfigurationError("Invalid values must be a list") 
+
+        return aux
+
+    def get_preferred_node_affinity(self, resource_profile: dict) -> dict: 
+
+        resource_profile = resource_profile or {}
+        aux = resource_profile.get(self.KEY_NODE_AFFINITY, {}).get('preferred')
+
+        if not aux:
+            return []
+
+        for item in aux:
+
+            assert isinstance(item.get(self.KEY_WEIGHT), int), ConfigurationError("Invalid {} must be a int number".format(self.KEY_WEIGHT))
+
+            assert item.get(self.KEY_PREFERENCE), ConfigurationError("Invalid {} must be a dict".format(self.KEY_PREFERENCE))
+
+            assert isinstance(item.get(self.KEY_PREFERENCE), dict), ConfigurationError("Invalid {} must be a dict".format(self.KEY_PREFERENCE))
+
+            assert item.get(self.KEY_PREFERENCE).get(self.KEY_MATCH_EXP), ConfigurationError("Invalid {} must have dicts with key: {}".format(self.KEY_PREFERENCE, self.KEY_MATCH_EXP))
+
+            for subitem in item.get(self.KEY_PREFERENCE).get(self.KEY_MATCH_EXP):
+
+                assert subitem.get("key"), ConfigurationError("Invalid {} must provide at least one key".format(self.KEY_MATCH_EXP))
+
+                assert subitem.get("values"), ConfigurationError(" Invalid {} must provide at least one value".format(self.KEY_MATCH_EXP))
+            
+                assert isinstance(subitem.get("values"), list), ConfigurationError("Invalid values must be a list")
+
+        return aux
 
 def get_captain_compass():
     

@@ -541,7 +541,78 @@ class KubeCaptain(Captain):
         k8s_config.load_kube_config()
         self.api_client = k8s_client.ApiClient()
         self.svc_type = self.compass.get_svc_type(self.resources)
-    
+        self.required_node_affinity = self.compass.get_required_node_affinity(self.resources)
+        self.preferred_node_affinity = self.compass.get_preferred_node_affinity(self.resources)
+
+
+    def handle_required_node_affinity(self):
+
+
+        if not self.required_node_affinity.get('nodeSelectorTerms'):
+            return {}
+
+        aux = {"nodeSelectorTerms": []}
+
+        match_expressions = {"matchExpressions": []}
+        keys = {
+            "key": "",
+            "operator": "",
+            "values": []
+        }
+
+        for item in self.required_node_affinity['nodeSelectorTerms']:
+            match_exp_tmp = match_expressions.copy()
+
+            for subitem in item["matchExpressions"]:
+
+                tmp_keys = keys.copy()
+                tmp_keys['key'] = subitem['key']
+                tmp_keys['operator'] = "In"  # fixed operator for now
+
+                for value in subitem['values']:
+                    tmp_keys['values'].append(value)
+                    match_exp_tmp['matchExpressions'].append(tmp_keys)
+
+            aux['nodeSelectorTerms'].append(match_exp_tmp)
+
+        return aux
+
+    def handle_preferred_node_affinity(self):
+  
+        if len(self.preferred_node_affinity) == 0:
+            return []
+
+        aux = []
+
+        dyct = {"weight": 1, "preference": {"matchExpressions": []}}
+        
+        keys = {
+            "key": "",
+            "operator": "",
+            "values": []
+        }
+
+        for item in self.preferred_node_affinity:
+            dyct_tmp = dyct.copy()
+            dyct_tmp['weight'] = item['weight']
+
+            print(item)
+
+            for subitem in item["preference"]["matchExpressions"]:
+                tmp_keys = keys.copy()
+                tmp_keys['key'] = subitem['key']
+                tmp_keys['operator'] = "In"  # fixed operator for now
+
+                for value in subitem['values']:
+                    tmp_keys['values'].append(value)
+            
+                dyct_tmp['preference']['matchExpressions'].append(tmp_keys)
+                
+            aux.append(dyct_tmp)
+
+        return aux
+
+
     def run(self, img: ImageSpec, env_vars, mounts, cargos, ports, cmd: list, name: str, foreground=False):
         
         [self.load_vol(v, name) for v in cargos]
@@ -549,6 +620,8 @@ class KubeCaptain(Captain):
         vol_refs, vol_defs = self.kube_vols(cargos)
         mount_refs, mount_defs = self.kube_mounts(mounts)
         port_refs, port_defs = self.kube_svc_ports(name, ports)
+        node_required_affinity = self.handle_required_node_affinity()
+        node_preferred_affinity = self.handle_preferred_node_affinity()
         
         container = dict(
             name=name,
@@ -568,7 +641,15 @@ class KubeCaptain(Captain):
             spec={
                 'containers': [container],
                 'volumes': vol_defs + mount_defs,
-                'imagePullSecrets': [{'name': self.secret}]
+                'imagePullSecrets': [{'name': self.secret}],
+                'affinity': {
+                    'nodeAffinity': {
+                        "requiredDuringSchedulingIgnoredDuringExecution":
+                        node_required_affinity,
+                        "preferredDuringSchedulingIgnoredDuringExecution":
+                        node_preferred_affinity
+                                }
+                            }
             }
         ))
         
@@ -591,6 +672,8 @@ class KubeCaptain(Captain):
         vol_refs, vol_defs = self.kube_vols(cargos)
         mount_refs, mount_defs = self.kube_mounts(mounts)
         port_refs, port_defs = self.kube_svc_ports(name, ports)
+        node_required_affinity = self.handle_required_node_affinity()
+        node_preferred_affinity = self.handle_preferred_node_affinity()
         
         container = dict(
             name=name,
@@ -620,11 +703,19 @@ class KubeCaptain(Captain):
                     spec={
                         'containers': [container],
                         'volumes': vol_defs + mount_defs,
-                        'imagePullSecrets': [{'name': self.secret}]
+                        'imagePullSecrets': [{'name': self.secret}],
+                        'affinity': {
+                            'nodeAffinity': {
+                                "requiredDuringSchedulingIgnoredDuringExecution":
+                                    node_required_affinity,
+                                "preferredDuringSchedulingIgnoredDuringExecution":
+                                    node_preferred_affinity
+                                }
+                            }
                     }
                 )
             )
-        ))
+        ), _depth=6)
 
         if self.find_depl(name) is None:
             self.LOG.info("Creating deployment '{}'".format(name))
