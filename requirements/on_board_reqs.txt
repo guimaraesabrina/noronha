@@ -11,7 +11,7 @@ random_name
 gitpython
 blinker
 jupyter
-papermill
+papermill==2.4.0
 Flask
 pyOpenSSL
 keyring
@@ -21,4 +21,4 @@ gunicorn
 ujson
 conu
 requests
-jupyter-client
+jupyter_client==7.4.4
